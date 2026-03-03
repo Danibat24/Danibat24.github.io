@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FastReader V2.9</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📖</text></svg>">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    
+    <style>
+        * { box-sizing: border-box; }
+
+        :root { 
+            --primary: #2ecc71; --danger: #e74c3c; --dark-ui: #2c3e50; 
+            --sidebar-width: clamp(280px, 35vw, 340px); 
+            --bg: #f0f2f5; --text: #2c3e50; --card: #ffffff;
+        }
+
+        body.dark-main:not(.focus-active) { --bg: #1a1a2e; --text: #e0e0e0; --card: #16213e; }
+        body.dark-focus.focus-active { --bg: #000000; --text: #ffffff; --card: #111111; }
+
+        body { 
+            font-family: 'Segoe UI', system-ui, sans-serif; 
+            margin: 0; display: flex; height: 100vh; 
+            background-color: var(--bg); color: var(--text); 
+            overflow: hidden; transition: all 0.3s ease; 
+        }
+        
+        /* Sidebar */
+        #sidebar { 
+            width: var(--sidebar-width); background: var(--card); 
+            border-right: 1px solid rgba(0,0,0,0.1); display: flex; 
+            flex-direction: column; padding: 20px; transition: transform 0.3s ease; 
+            z-index: 100; flex-shrink: 0; box-shadow: 2px 0 15px rgba(0,0,0,0.05);
+        }
+        #sidebar.hidden { transform: translateX(-100%); position: absolute; }
+        
+        .sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-top: 40px; margin-bottom: 20px; width: 100%; }
+        
+        .add-btn { 
+            background: var(--primary); color: white; width: 44px; height: 44px; border-radius: 50%; 
+            display: flex; align-items: center; justify-content: center; 
+            cursor: pointer; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.15); flex-shrink: 0; padding: 0; margin: 0;
+        }
+        .add-btn svg { width: 24px; height: 24px; fill: white; display: block; }
+
+        #search-input { 
+            width: 100%; padding: 12px; border-radius: 12px; 
+            border: 1px solid rgba(0,0,0,0.1); background: rgba(0,0,0,0.03); 
+            color: inherit; outline: none; margin-bottom: 15px; font-size: 0.95em;
+        }
+        #search-input:focus { border-color: var(--primary); }
+
+        #library-list { flex-grow: 1; overflow-y: auto; width: 100%; padding-right: 5px; }
+
+        .file-item { 
+            padding: 15px; border-bottom: 1px solid rgba(0,0,0,0.05); cursor: pointer; 
+            display: flex; justify-content: space-between; align-items: center; 
+            border-radius: 12px; margin-bottom: 8px; width: 100%; transition: 0.2s;
+        }
+        .file-item:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        .file-item.active { background: var(--primary); color: white; }
+        .file-info { flex-grow: 1; overflow: hidden; margin-right: 10px; }
+        .file-info strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 1em; }
+        .file-stats { font-size: 0.85em; opacity: 0.9; margin-top: 5px; display: block; line-height: 1.4; }
+        
+        .delete-btn { color: #ccc; border: none; background: none; font-size: 1.4em; cursor: pointer; padding: 5px; }
+        .file-item.active .delete-btn { color: white; }
+
+        /* Area Lettura Centrale */
+        #main-content { 
+            flex-grow: 1; display: flex; flex-direction: column; 
+            align-items: center; padding: 20px; position: relative; 
+            overflow-y: auto; justify-content: center; 
+            min-height: 100vh;
+        }
+
+        #word-display { 
+            font-family: 'Courier New', monospace; display: flex; justify-content: center; align-items: center; 
+            background: var(--card); width: 100%; max-width: 850px; 
+            height: clamp(160px, 25vh, 260px);
+            border-radius: 25px; box-shadow: 0 15px 35px rgba(0,0,0,0.05); 
+            font-size: clamp(32px, 8vw, 64px); text-align: center; margin-top: 10px;
+            transition: all 0.4s ease;
+        }
+        .orp { color: var(--danger); font-weight: bold; text-decoration: underline; }
+
+        /* Progress Bar */
+        #progress-container { 
+            width: 95%; max-width: 850px; height: 35px; background: rgba(0,0,0,0.1); 
+            border-radius: 20px; margin-top: 30px; cursor: pointer; 
+            position: relative; overflow: hidden; flex-shrink: 0;
+        }
+        #progress-bar { height: 100%; background: var(--primary); width: 0%; transition: width 0.1s linear; }
+        #progress-text { position: absolute; width: 100%; text-align: center; line-height: 35px; font-weight: bold; font-size: 0.85em; pointer-events: none; text-shadow: 0 0 2px rgba(255,255,255,0.8); color: #333;}
+
+        /* Controlli Dinamici */
+        .controls-wrapper { display: flex; flex-direction: column; align-items: center; margin-top: 35px; width: 100%; }
+        
+        #focus-wpm-indicator { 
+            display: none; /* Visibile solo in focus */
+            font-weight: bold; font-size: 0.9em; opacity: 0.7; 
+            margin-bottom: 8px; letter-spacing: 1px;
+        }
+
+        .controls { display: flex; gap: 12px; align-items: center; justify-content: center; width: 100%; flex-wrap: wrap; }
+        
+        .ctrl-btn { 
+            padding: 10px 15px; border-radius: 14px; border: none; 
+            background: var(--dark-ui); color: white; cursor: pointer; 
+            display: flex; align-items: center; justify-content: center; 
+            min-width: 65px; height: 60px; transition: 0.2s; font-weight: bold; font-size: 1.1em;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        .ctrl-btn svg { width: 26px; height: 26px; fill: currentColor; }
+        .ctrl-btn:hover { transform: translateY(-3px); opacity: 0.9; }
+        #play-btn { background: var(--primary); min-width: 100px; font-size: 1.8em; border-radius: 18px; }
+        
+        /* Classi per alternare i pulsanti in base alla modalità */
+        .focus-only-btn { display: none; background: #7f8c8d; font-size: 1em; }
+        .main-only-btn { display: flex; }
+
+        #menu-toggle { position: absolute; top: 15px; left: 15px; z-index: 300; background: var(--dark-ui); color: white; border: none; padding: 12px 18px; border-radius: 10px; cursor: pointer; font-weight: bold; letter-spacing: 1px; }
+        
+        /* Modals & Loader */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(5px); padding: 20px; }
+        .modal-content { background: white; padding: 30px; border-radius: 20px; width: 100%; max-width: 400px; max-height: 90vh; overflow-y: auto; color: #333; }
+        .setting-row { margin-bottom: 20px; text-align: left; }
+        .setting-row label { font-weight: bold; display: block; margin-bottom: 8px; font-size: 0.95em; color: #555; }
+        
+        /* Toast Notification */
+        #wpm-toast {
+            position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.8); color: white; padding: 10px 25px;
+            border-radius: 20px; font-weight: bold; font-size: 1.2em;
+            opacity: 0; transition: opacity 0.3s ease; pointer-events: none; z-index: 3000;
+        }
+        .show-toast { opacity: 1 !important; }
+
+        /* --- FOCUS MODE STYLES --- */
+        body.focus-active #sidebar, body.focus-active #menu-toggle { display: none !important; }
+        body.focus-active #main-content { justify-content: center; padding: 0; }
+        body.focus-active #word-display { background: transparent; box-shadow: none; border: none; font-size: clamp(40px, 15vw, 120px); height: 45vh; }
+        body.focus-active #progress-container { opacity: 0.5; width: 70%; margin-top: 10px; }
+        body.focus-active #progress-text { color: white; text-shadow: 0 0 5px black; }
+        
+        /* Logica Pulsanti in Focus */
+        body.focus-active .focus-only-btn { display: flex; }
+        body.focus-active .main-only-btn { display: none; }
+        body.focus-active #focus-wpm-indicator { display: block; color: var(--text); }
+        
+        /* Tasto Uscita Focus (In basso a destra, Alto Contrasto) */
+        body.focus-active #focus-toggle {
+            position: fixed; bottom: 30px; right: 30px; 
+            width: 65px; height: 65px; border-radius: 50%; 
+            background: var(--dark-ui); /* Sfondo scuro sempre visibile */
+            box-shadow: 0 5px 20px rgba(0,0,0,0.4);
+            z-index: 1000;
+        }
+        body.focus-active #focus-toggle svg { fill: white; } /* Icona sempre bianca */
+        body.focus-active #focus-toggle:hover { background: var(--primary); }
+
+        .utility-btn { width: 100%; padding: 12px; border-radius: 10px; color: white; border: none; cursor: pointer; font-weight: bold; font-size: 0.85em; transition: 0.2s; text-align: center; }
+        .utility-btn:hover { opacity: 0.9; transform: translateY(-2px); }
+    </style>
+</head>
+<body>
+
+<div id="wpm-toast">300 WPM</div>
+
+<button id="menu-toggle" onclick="toggleSidebar()">☰ MENU</button>
+
+<div id="sidebar">
+    <div class="sidebar-header">
+        <h3 style="margin:0; font-size: 1.4em;">📚 FastReader V2.9</h3>
+        <label for="file-input" class="add-btn" title="Aggiungi file">
+            <svg viewBox="0 0 24 24"><path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z" /></svg>
+        </label>
+        <input type="file" id="file-input" accept=".pdf, .txt" multiple style="display: none !important;">
+    </div>
+
+    <input type="text" id="search-input" placeholder="Cerca tra i tuoi libri..." oninput="handleSearch(this.value)">
+    
+    <div id="library-list"></div>
+    
+    <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(0,0,0,0.1);">
+        <button class="utility-btn" onclick="saveAppWithData()" style="background: var(--primary);">💾 SALVA APP PORTATILE</button>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <button class="utility-btn" onclick="exportJSON()" style="background: #7f8c8d; font-size: 0.75em;">ESPORTA JSON</button>
+            <button class="utility-btn" onclick="document.getElementById('import-input').click()" style="background: #7f8c8d; font-size: 0.75em;">IMPORTA JSON</button>
+        </div>
+        <input type="file" id="import-input" style="display:none !important;" onchange="importJSON(event)">
+        <button class="utility-btn" onclick="openModal('settings-modal')" style="background: var(--dark-ui); margin-top: 5px;">IMPOSTAZIONI ⚙️</button>
+    </div>
+</div>
+
+<div id="loader-modal" class="modal">
+    <div class="modal-content" style="max-width: 300px; text-align: center;">
+        <h3 id="loader-title" style="margin:0">Analisi in corso...</h3>
+        <p id="loader-status" style="font-size: 0.9em; margin: 15px 0;">Preparazione file</p>
+        <div style="width:100%; height:12px; background:#eee; border-radius:6px; overflow:hidden;">
+            <div id="loader-bar-fill" style="height:100%; background:var(--primary); width:0%; transition: width 0.3s;"></div>
+        </div>
+    </div>
+</div>
+
+<div id="settings-modal" class="modal">
+    <div class="modal-content">
+        <h3 style="margin-top:0; border-bottom: 2px solid var(--primary); padding-bottom: 10px;">⚙️ Opzioni Lettura</h3>
+        
+        <div class="setting-row">
+            <label>Carattere (Font)</label>
+            <select id="font-select" onchange="applyStyles()" style="width:100%; padding:10px; border-radius:10px; border: 1px solid #ccc; font-size: 1em;">
+                <option value="'Segoe UI', sans-serif">Segoe UI</option>
+                <option value="'Courier New', monospace">Courier New</option>
+                <option value="'Georgia', serif">Georgia</option>
+                <option value="'Impact', sans-serif">Impact</option>
+                <option value="'Verdana', sans-serif">Verdana</option>
+                <option value="'Times New Roman', serif">Times New Roman</option>
+            </select>
+        </div>
+        
+        <div class="setting-row">
+            <label>Temi Scuri</label>
+            <div style="background: rgba(0,0,0,0.03); padding: 10px; border-radius: 10px;">
+                <input type="checkbox" id="dark-main-check" onchange="applyThemes()" style="transform: scale(1.2); margin-right: 10px;"> App Principale<br><br>
+                <input type="checkbox" id="dark-focus-check" onchange="applyThemes()" style="transform: scale(1.2); margin-right: 10px;"> Modalità Focus
+            </div>
+        </div>
+        
+        <div class="setting-row">
+            <label>Navigazione (Parole da saltare)</label>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                Indietro: <input type="number" id="back-step" value="10" oninput="syncLabels()" style="width:70px; padding:8px; border-radius: 8px; border: 1px solid #ccc;">
+                Avanti: <input type="number" id="forward-step" value="30" oninput="syncLabels()" style="width:70px; padding:8px; border-radius: 8px; border: 1px solid #ccc;">
+            </div>
+        </div>
+        
+        <button class="ctrl-btn" onclick="closeModal('settings-modal')" style="width:100%; background:var(--primary); height: 50px; font-size: 1.1em; margin-top: 10px;">SALVA E CHIUDI</button>
+    </div>
+</div>
+
+<div id="wpm-modal" class="modal">
+    <div class="modal-content" style="max-width: 300px; text-align: center;">
+        <h3>Velocità WPM 🚀</h3>
+        <label><strong id="wpm-val-modal" style="font-size: 2em;">300</strong></label><br><br>
+        <input type="range" id="wpm-slider-modal" min="100" max="2000" step="20" value="300" oninput="adjustWPMFromSlider(this.value)" style="width: 100%;"><br><br>
+        <button class="ctrl-btn" onclick="closeModal('wpm-modal')" style="width:100%; background:var(--primary)">CONFERMA</button>
+    </div>
+</div>
+
+<div id="main-content">
+    <div id="word-display"><span id="txt-content">Pronto</span></div>
+    
+    <div id="progress-container" onclick="manualSeek(event)">
+        <div id="progress-bar"></div>
+        <div id="progress-text">0% completato</div>
+    </div>
+
+    <div class="controls-wrapper">
+        <div id="focus-wpm-indicator">300 WPM</div>
+
+        <div class="controls">
+            <button class="ctrl-btn focus-only-btn" onclick="adjustWPM(-20)" title="Diminuisci Velocità">-20 ⚡</button>
+            
+            <button class="ctrl-btn main-only-btn" onclick="openModal('wpm-modal')" title="Velocità">
+                <svg viewBox="0 0 24 24"><path d="M13 10V3L4 14H11V21L20 10H13Z"/></svg>
+            </button>
+            
+            <button class="ctrl-btn" id="btn-back" onclick="skip('back')">-10</button>
+            <button class="ctrl-btn" id="play-btn" onclick="togglePlay()">▶</button>
+            <button class="ctrl-btn" id="btn-forward" onclick="skip('forward')">+30</button>
+            
+            <button class="ctrl-btn focus-only-btn" onclick="adjustWPM(20)" title="Aumenta Velocità">+20 ⚡</button>
+
+            <button class="ctrl-btn" id="focus-toggle" onclick="toggleFocusMode()" title="Entra/Esci Focus">
+                <svg id="svg-focus-in" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                <svg id="svg-focus-out" viewBox="0 0 24 24" style="display:none;"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const PRELOADED_DATA = null;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+    let db, library = [], filteredLibrary = [], currentIndex = -1, isPlaying = false, timer = null, wpm = 300, searchQuery = "";
+    let toastTimeout;
+
+    const req = indexedDB.open("FastReaderDB_V2_9", 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore("books", { keyPath: "id", autoIncrement: true });
+    req.onsuccess = e => { 
+        db = e.target.result; 
+        const check = db.transaction("books", "readonly").objectStore("books").count();
+        check.onsuccess = (ev) => {
+            if (ev.target.result === 0 && PRELOADED_DATA) {
+                const tx = db.transaction("books", "readwrite");
+                PRELOADED_DATA.forEach(b => { delete b.id; tx.objectStore("books").add(b); });
+                tx.oncomplete = loadFromDB;
+            } else loadFromDB();
+        };
+    };
+
+    function loadFromDB() {
+        db.transaction("books", "readonly").objectStore("books").getAll().onsuccess = e => {
+            library = e.target.result;
+            handleSearch(searchQuery);
+            syncLabels();
+        };
+    }
+
+    // --- KEYBOARD CONTROLS CON BYPASS ---
+    window.addEventListener('keydown', e => {
+        if (document.activeElement.tagName === 'INPUT') return; 
+        switch(e.code) {
+            case "Space": e.preventDefault(); togglePlay(); break;
+            case "ArrowRight": e.preventDefault(); skip('forward'); break;
+            case "ArrowLeft": e.preventDefault(); skip('back'); break;
+            case "ArrowUp": e.preventDefault(); adjustWPM(20); break;
+            case "ArrowDown": e.preventDefault(); adjustWPM(-20); break;
+        }
+    });
+
+    // --- WPM LOGIC ---
+    function syncWPMDisplays() {
+        document.getElementById('wpm-val-modal').innerText = wpm;
+        document.getElementById('wpm-slider-modal').value = wpm;
+        document.getElementById('focus-wpm-indicator').innerText = wpm + " WPM";
+    }
+
+    function adjustWPM(delta) {
+        wpm = Math.max(100, Math.min(2000, parseInt(wpm) + delta));
+        syncWPMDisplays();
+        updateUI();
+        
+        // Show Toast
+        const toast = document.getElementById('wpm-toast');
+        toast.innerText = `${wpm} WPM`;
+        toast.classList.add('show-toast');
+        clearTimeout(toastTimeout);
+        toastTimeout = setTimeout(() => { toast.classList.remove('show-toast'); }, 1200);
+    }
+
+    function adjustWPMFromSlider(val) {
+        wpm = val;
+        syncWPMDisplays();
+        updateUI();
+    }
+
+    // --- CARICAMENTO FILE ---
+    document.getElementById('file-input').addEventListener('change', async (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+        
+        openModal('loader-modal');
+        const loaderFill = document.getElementById('loader-bar-fill');
+        
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            document.getElementById('loader-title').innerText = `File ${i+1} di ${files.length}`;
+            document.getElementById('loader-status').innerText = file.name;
+            loaderFill.style.width = `${(i / files.length) * 100}%`;
+            
+            let words = [], totalP = 0;
+            try {
+                if (file.type === "application/pdf") {
+                    const pdf = await pdfjsLib.getDocument({data: await file.arrayBuffer()}).promise;
+                    totalP = pdf.numPages;
+                    for (let pIdx = 1; pIdx <= totalP; pIdx++) {
+                        const page = await pdf.getPage(pIdx);
+                        const content = await page.getTextContent();
+                        content.items.forEach(item => {
+                            const b = item.fontName.toLowerCase().includes('bold'), it = item.fontName.toLowerCase().includes('italic');
+                            item.str.split(/\s+/).forEach(w => w.trim() && words.push({ t: w, b: b, i: it, p: pIdx }));
+                        });
+                    }
+                } else {
+                    words = (await file.text()).split(/\s+/).filter(w => w.trim()).map((w, idx) => ({ t: w, p: Math.floor(idx/300)+1 }));
+                    totalP = Math.ceil(words.length / 300);
+                }
+                await new Promise(r => {
+                    const tx = db.transaction("books", "readwrite");
+                    tx.objectStore("books").add({ name: file.name, words: words, lastPos: 0, totalPages: totalP });
+                    tx.oncomplete = r;
+                });
+            } catch(err) { console.error(err); }
+        }
+        
+        loaderFill.style.width = "100%";
+        setTimeout(() => { closeModal('loader-modal'); loadFromDB(); }, 400);
+    });
+
+    function handleSearch(q) {
+        searchQuery = q.toLowerCase();
+        filteredLibrary = library.filter(b => b.name.toLowerCase().includes(searchQuery));
+        renderLibrary();
+    }
+
+    function renderLibrary() {
+        const list = document.getElementById('library-list');
+        list.innerHTML = "";
+        filteredLibrary.forEach((book) => {
+            const realIdx = library.findIndex(b => b.id === book.id);
+            const p = Math.round((book.lastPos / (book.words.length - 1)) * 100) || 0;
+            const timeRem = Math.ceil((book.words.length - book.lastPos) / wpm);
+            const div = document.createElement('div');
+            div.className = `file-item ${currentIndex === realIdx ? 'active' : ''}`;
+            div.onclick = () => selectBook(realIdx);
+            div.innerHTML = `<div class="file-info"><strong>${book.name}</strong><span class="file-stats"><span id="side-p-${realIdx}">${p}</span>% | Pag: <span id="side-page-${realIdx}">${book.words[book.lastPos]?.p || 1}</span>/${book.totalPages}<br>Mancano: <span id="side-time-${realIdx}">${timeRem}</span> min</span></div><button class="delete-btn" onclick="deleteBook(${book.id}, event)" title="Rimuovi">&times;</button>`;
+            list.appendChild(div);
+        });
+    }
+
+    // --- LETTURA E LOGICA VISIVA ---
+    function showWord() {
+        if (currentIndex === -1) return;
+        const b = library[currentIndex]; const w = b.words[b.lastPos];
+        if (!w) return;
+        const o = w.t.length <= 5 ? 1 : (w.t.length <= 9 ? 2 : 3);
+        const d = document.getElementById('word-display');
+        d.style.fontWeight = w.b ? 'bold' : 'normal'; d.style.fontStyle = w.i ? 'italic' : 'normal';
+        document.getElementById('txt-content').innerHTML = `<span>${w.t.substring(0, o)}</span><span class="orp">${w.t.substring(o, o+1)}</span><span>${w.t.substring(o+1)}</span>`;
+    }
+
+    function skip(dir) {
+        if (currentIndex === -1) return;
+        const s = parseInt(document.getElementById(dir === 'forward' ? 'forward-step' : 'back-step').value) || 10;
+        const b = library[currentIndex];
+        b.lastPos = Math.max(0, Math.min(b.words.length - 1, b.lastPos + (dir === 'forward' ? s : -s)));
+        showWord(); updateUI(); saveProgress();
+    }
+
+    function togglePlay() { 
+        if (currentIndex === -1) return;
+        isPlaying = !isPlaying; 
+        document.getElementById('play-btn').innerText = isPlaying ? "⏸" : "▶";
+        if (isPlaying) run(); else saveProgress();
+    }
+
+    function run() {
+        if (!isPlaying) return;
+        if (library[currentIndex].lastPos < library[currentIndex].words.length - 1) {
+            library[currentIndex].lastPos++; showWord(); updateUI();
+            timer = setTimeout(run, 60000 / wpm);
+        } else stopReader();
+    }
+
+    function stopReader() { isPlaying = false; document.getElementById('play-btn').innerText = "▶"; clearTimeout(timer); saveProgress(); }
+
+    function updateUI() {
+        if (currentIndex === -1) return;
+        const b = library[currentIndex]; const p = Math.round((b.lastPos / (b.words.length - 1)) * 100);
+        document.getElementById('progress-bar').style.width = p + "%";
+        document.getElementById('progress-text').innerText = p + "% completato";
+        if(document.getElementById(`side-p-${currentIndex}`)) {
+            document.getElementById(`side-p-${currentIndex}`).innerText = p;
+            document.getElementById(`side-page-${currentIndex}`).innerText = b.words[b.lastPos]?.p || 1;
+            document.getElementById(`side-time-${currentIndex}`).innerText = Math.ceil((b.words.length - b.lastPos) / wpm);
+        }
+    }
+
+    // --- IMPOSTAZIONI E UTILITIES ---
+    function saveAppWithData() {
+        const cleanHTML = document.documentElement.outerHTML.replace(/const PRELOADED_DATA = \[.*?\];|const PRELOADED_DATA = null;/g, 'const PRELOADED_DATA = null;');
+        const finalHTML = cleanHTML.replace('const PRELOADED_DATA = null;', `const PRELOADED_DATA = ${JSON.stringify(library)};`);
+        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([finalHTML], {type: "text/html"}));
+        a.download = "FastReader_V2.9_Portable.html"; a.click();
+    }
+
+    function exportJSON() { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(library)], {type:"application/json"})); a.download="FastReader_Backup.json"; a.click(); }
+    function importJSON(e) { const r = new FileReader(); r.onload = ev => { JSON.parse(ev.target.result).forEach(b => { delete b.id; db.transaction("books","readwrite").objectStore("books").add(b); }); loadFromDB(); }; r.readAsText(e.target.files[0]); }
+    
+    function applyThemes() { 
+        document.body.classList.toggle('dark-main', document.getElementById('dark-main-check').checked); 
+        document.body.classList.toggle('dark-focus', document.getElementById('dark-focus-check').checked); 
+    }
+    
+    function applyStyles() { document.getElementById('word-display').style.fontFamily = document.getElementById('font-select').value; }
+    
+    function toggleFocusMode() { 
+        const f = document.body.classList.toggle('focus-active'); 
+        document.getElementById('svg-focus-in').style.display = f ? 'none' : 'block'; 
+        document.getElementById('svg-focus-out').style.display = f ? 'block' : 'none'; 
+        if(f) document.documentElement.requestFullscreen?.(); else if(document.fullscreenElement) document.exitFullscreen(); 
+    }
+    
+    function openModal(id) { stopReader(); document.getElementById(id).style.display = 'flex'; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+    function syncLabels() { document.getElementById('btn-back').innerText = `-${document.getElementById('back-step').value}`; document.getElementById('btn-forward').innerText = `+${document.getElementById('forward-step').value}`; }
+    
+    function selectBook(idx) { currentIndex = idx; stopReader(); showWord(); updateUI(); renderLibrary(); }
+    function deleteBook(id, e) { e.stopPropagation(); if (confirm("Sei sicuro di voler rimuovere questo libro?")) db.transaction("books", "readwrite").objectStore("books").delete(id).onsuccess = loadFromDB; }
+    function saveProgress() { if (currentIndex !== -1) db.transaction("books", "readwrite").objectStore("books").put(library[currentIndex]); }
+    function toggleSidebar() { document.getElementById('sidebar').classList.toggle('hidden'); }
+    
+    function manualSeek(e) { 
+        if (currentIndex === -1) return; 
+        const r = document.getElementById('progress-container').getBoundingClientRect(); 
+        library[currentIndex].lastPos = Math.floor(((e.clientX - r.left) / r.width) * (library[currentIndex].words.length - 1)); 
+        showWord(); updateUI(); saveProgress(); 
+    }
+</script>
+</body>
+</html>

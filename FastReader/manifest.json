@@ -1,0 +1,17 @@
+{
+  "name": "FastReader Pro",
+  "short_name": "FastReader",
+  "description": "Lettore rapido RSVP",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f0f2f5",
+  "theme_color": "#2c3e50",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
